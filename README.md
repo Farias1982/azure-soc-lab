@@ -35,17 +35,16 @@ Event
 ## 📸 Lab Screenshots
 
 ### Log Data
-![Logs](screenshots/SOC%20lab%201.png)
+![Logs](soc-lab-1.png)
 
 ### Query Results
-![Query](screenshots/SOC%20lab%202.png)
+![Query](soc-lab-2.png)
 
 ### Timechart Visualization
-![Chart](screenshots/SOC%20lab%203.png)
+![Chart](soc-lab-3.png)
 
 ### Alert Rule
-![Alert](screenshots/SOC%20lab%20primary%20alert%20rule.png)
-
+![Alert](alert-rule.png)
 ---
 
 ## 🎯 Outcome
