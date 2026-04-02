@@ -36,14 +36,8 @@ Event
 
 ### Log Data
 ![Logs](soc-lab-1.png)
-
-### Query Results
 ![Query](soc-lab-2.png)
-
-### Timechart Visualization
 ![Chart](soc-lab-3.png)
-
-### Alert Rule
 ![Alert](alert-rule.png)
 ---
 
