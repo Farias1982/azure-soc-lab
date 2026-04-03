@@ -29,7 +29,7 @@ Event
 | where EventID == 4625
 | summarize FailedAttempts = count() by bin(TimeGenerated, 5m)
 | where FailedAttempts > 5
-
+```
 ---
 
 ## 📸 Lab Screenshots
