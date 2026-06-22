@@ -1,0 +1,45 @@
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Environment and secrets — never commit credentials
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+*.cer
+
+# Azure CLI artifacts
+.azure/
+azuredeploy.parameters.json
+
+# Terraform state (if you expand to IaC)
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+
+# Python (if scripting is added)
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
