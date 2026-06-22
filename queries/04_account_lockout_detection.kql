@@ -1,0 +1,20 @@
+// ============================================================
+// Query 4: Account Lockout Detection
+// Event ID 4740 = A user account was locked out
+// Lockouts are a strong signal of an active brute force attack
+// This query surfaces locked accounts and the triggering machine
+// ============================================================
+
+Event
+| where EventLog == "Security"
+| where EventID == 4740
+| extend LockedAccount   = tostring(parse_xml(EventData).DataItem.EventData.Data[0]["#text"])
+| extend CallerMachine   = tostring(parse_xml(EventData).DataItem.EventData.Data[1]["#text"])
+| extend DomainName      = tostring(parse_xml(EventData).DataItem.EventData.Data[2]["#text"])
+| summarize
+    LockoutCount = count(),
+    CallerMachines = make_set(CallerMachine),
+    FirstLockout   = min(TimeGenerated),
+    LastLockout    = max(TimeGenerated)
+    by LockedAccount, DomainName
+| order by LockoutCount desc

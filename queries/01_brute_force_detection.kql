@@ -1,0 +1,12 @@
+// ============================================================
+// Query 1: Brute Force Detection – Repeated Failed Logins
+// Event ID 4625 = Failed logon attempt
+// Flags any source with more than 5 failures in a 5-minute window
+// ============================================================
+
+Event
+| where EventLog == "Security"
+| where EventID == 4625
+| summarize FailedAttempts = count() by bin(TimeGenerated, 5m)
+| where FailedAttempts > 5
+| order by FailedAttempts desc

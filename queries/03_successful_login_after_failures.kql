@@ -1,0 +1,36 @@
+// ============================================================
+// Query 3: Successful Login After Multiple Failures
+// Event ID 4625 = Failed logon | Event ID 4624 = Successful logon
+// High-confidence indicator of a successful brute force attack
+// Looks for accounts with 5+ failures followed by a success
+// within a 30-minute window
+// ============================================================
+
+let FailedLogins = Event
+    | where EventLog == "Security"
+    | where EventID == 4625
+    | extend TargetUser = tostring(parse_xml(EventData).DataItem.EventData.Data[5]["#text"])
+    | summarize FailedCount = count(), LastFailure = max(TimeGenerated) by TargetUser
+    | where FailedCount >= 5;
+
+let SuccessfulLogins = Event
+    | where EventLog == "Security"
+    | where EventID == 4624
+    | extend TargetUser  = tostring(parse_xml(EventData).DataItem.EventData.Data[5]["#text"])
+    | extend LogonType   = tostring(parse_xml(EventData).DataItem.EventData.Data[8]["#text"])
+    | extend SourceIP    = tostring(parse_xml(EventData).DataItem.EventData.Data[18]["#text"])
+    | project TargetUser, SuccessTime = TimeGenerated, LogonType, SourceIP;
+
+FailedLogins
+| join kind=inner SuccessfulLogins on TargetUser
+| where SuccessTime > LastFailure
+| where SuccessTime < LastFailure + 30m
+| project
+    TargetUser,
+    FailedCount,
+    LastFailure,
+    SuccessTime,
+    MinutesBetween = datetime_diff('minute', SuccessTime, LastFailure),
+    LogonType,
+    SourceIP
+| order by SuccessTime desc
