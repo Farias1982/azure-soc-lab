@@ -1,0 +1,49 @@
+// ============================================================
+// Query 5: Incident Enrichment – Full Attack Timeline
+// Used to enrich a Sentinel incident with context before
+// or after playbook execution. Pulls failed logins, lockouts,
+// and successful logins for a specific IP within a time window.
+//
+// Usage: Replace <ATTACKER_IP> and adjust the time range
+// to match the incident window.
+// ============================================================
+
+let AttackerIP = "<ATTACKER_IP>";
+let StartTime  = ago(1h);
+let EndTime    = now();
+
+// Failed login attempts from the attacker IP
+let FailedLogins = Event
+    | where TimeGenerated between (StartTime .. EndTime)
+    | where EventLog == "Security"
+    | where EventID == 4625
+    | extend SourceIP    = tostring(parse_xml(EventData).DataItem.EventData.Data[19]["#text"])
+    | extend TargetUser  = tostring(parse_xml(EventData).DataItem.EventData.Data[5]["#text"])
+    | where SourceIP == AttackerIP
+    | project TimeGenerated, EventType = "Failed Login", SourceIP, TargetUser, EventID;
+
+// Account lockouts triggered during the window
+let Lockouts = Event
+    | where TimeGenerated between (StartTime .. EndTime)
+    | where EventLog == "Security"
+    | where EventID == 4740
+    | extend LockedAccount = tostring(parse_xml(EventData).DataItem.EventData.Data[0]["#text"])
+    | extend CallerMachine = tostring(parse_xml(EventData).DataItem.EventData.Data[1]["#text"])
+    | project TimeGenerated, EventType = "Account Lockout", SourceIP = CallerMachine, TargetUser = LockedAccount, EventID;
+
+// Successful logins during or after the attack window
+let SuccessfulLogins = Event
+    | where TimeGenerated between (StartTime .. EndTime)
+    | where EventLog == "Security"
+    | where EventID == 4624
+    | extend SourceIP   = tostring(parse_xml(EventData).DataItem.EventData.Data[18]["#text"])
+    | extend TargetUser = tostring(parse_xml(EventData).DataItem.EventData.Data[5]["#text"])
+    | extend LogonType  = tostring(parse_xml(EventData).DataItem.EventData.Data[8]["#text"])
+    | where SourceIP == AttackerIP
+    | project TimeGenerated, EventType = "Successful Login", SourceIP, TargetUser, EventID;
+
+// Union all events into a single timeline
+FailedLogins
+| union Lockouts
+| union SuccessfulLogins
+| order by TimeGenerated asc

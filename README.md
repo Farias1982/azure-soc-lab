@@ -11,6 +11,8 @@ This project demonstrates how to build a cloud-based Security Operations Center 
 - Log Analytics Workspace
 - Windows Virtual Machine
 - Kusto Query Language (KQL)
+- Azure Logic Apps (automated response playbook)
+- Azure Network Security Groups (NSG)
 
 ---
 
@@ -112,6 +114,42 @@ This creates automated incidents in Sentinel whenever brute force activity is de
 | 2 | [`02_brute_force_with_source_ip.kql`](queries/02_brute_force_with_source_ip.kql) | 4625 | Enriches failed logins with source IP and targeted accounts |
 | 3 | [`03_successful_login_after_failures.kql`](queries/03_successful_login_after_failures.kql) | 4625 + 4624 | Identifies successful logins following repeated failures — high-confidence brute force indicator |
 | 4 | [`04_account_lockout_detection.kql`](queries/04_account_lockout_detection.kql) | 4740 | Surfaces locked-out accounts and the machines triggering lockouts |
+| 5 | [`05_incident_enrichment.kql`](queries/05_incident_enrichment.kql) | 4625 + 4624 + 4740 | Full attack timeline enrichment — used during incident investigation |
+
+---
+
+## ⚡ Automated Response Playbook
+
+When a brute force incident is created in Sentinel, a **Logic App playbook** fires automatically and performs two actions in parallel:
+
+1. **Email alert** — sends a notification with the incident title, severity, time, and a direct link to the Sentinel incident
+2. **NSG IP block** — adds an inbound deny rule on port 3389 to the VM's Network Security Group, blocking the attacker IP immediately
+3. **Sentinel comment** — posts an automated comment on the incident confirming the IP was blocked
+
+### Attack-to-Response Flow
+
+```
+Brute force activity on VM
+        ↓
+Windows Security Log → Event ID 4625
+        ↓
+Log Analytics Workspace ingests events
+        ↓
+Sentinel Analytics Rule fires (every 5 min)
+        ↓
+Incident created in Sentinel
+        ↓
+Logic App Playbook triggered
+        ↙                    ↘
+Email alert sent        NSG deny rule added
+to SOC analyst          blocking attacker IP
+        ↓
+Sentinel incident comment confirms response
+```
+
+### Playbook Files
+- [`playbooks/brute-force-response.json`](playbooks/brute-force-response.json) — ARM template to deploy the Logic App
+- [`playbooks/DEPLOYMENT.md`](playbooks/DEPLOYMENT.md) — Step-by-step deployment and authorization guide
 
 ---
 
@@ -155,7 +193,7 @@ Event
 - **Alert threshold tuning matters.** Setting the failure threshold too low creates alert fatigue; too high and real attacks slip through. Starting at 5 failures per 5 minutes and adjusting based on baseline noise is a practical approach.
 
 ### What I Would Add Next
-- Threat intelligence integration using Microsoft Sentinel's **TI Map** to automatically flag known malicious IPs
-- A **watchlist** of known-good admin IPs to reduce false positives
-- **Playbooks (Logic Apps)** to auto-respond to incidents — e.g., blocking an IP via NSG rule when brute force is confirmed
-- Expansion to Linux VMs to cover SSH-based brute force (Event log: `/var/log/auth.log`)
+- Threat intelligence integration using Microsoft Sentinel's **TI Map** to automatically flag known malicious IPs against known bad actor databases
+- A **watchlist** of known-good admin IPs to reduce false positives in detection rules
+- Expansion to Linux VMs to cover SSH-based brute force detection (Event log: `/var/log/auth.log`)
+- **SOAR integration** — extend the playbook to open a ticket in ServiceNow or send a Teams message to a SOC channel

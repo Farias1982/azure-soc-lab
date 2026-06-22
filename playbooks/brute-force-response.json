@@ -1,0 +1,264 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "title": "Brute Force Response Playbook",
+    "description": "Automated response playbook for brute force incidents detected by Microsoft Sentinel. When triggered, it sends an email alert with incident details and blocks the attacker IP by adding a deny rule to the target VM's Network Security Group.",
+    "author": "Fabian Arias",
+    "lastUpdateTime": "2026-06-21"
+  },
+  "parameters": {
+    "PlaybookName": {
+      "type": "string",
+      "defaultValue": "BruteForce-Response-Playbook",
+      "metadata": { "description": "Name of the Logic App playbook" }
+    },
+    "NotificationEmail": {
+      "type": "string",
+      "metadata": { "description": "Email address to receive brute force alert notifications" }
+    },
+    "SubscriptionId": {
+      "type": "string",
+      "metadata": { "description": "Azure Subscription ID where the NSG resides" }
+    },
+    "ResourceGroupName": {
+      "type": "string",
+      "defaultValue": "soc-lab-rg",
+      "metadata": { "description": "Resource group containing the target NSG" }
+    },
+    "NSGName": {
+      "type": "string",
+      "metadata": { "description": "Name of the Network Security Group attached to the VM" }
+    }
+  },
+  "variables": {
+    "SentinelConnectionName": "azuresentinel",
+    "Office365ConnectionName": "office365",
+    "AzureRMConnectionName": "arm"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('SentinelConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "Microsoft Sentinel",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('Office365ConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "Office 365 Email",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/office365')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('AzureRMConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "Azure Resource Manager",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/arm')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2017-07-01",
+      "name": "[parameters('PlaybookName')]",
+      "location": "[resourceGroup().location]",
+      "tags": {
+        "hidden-SentinelTemplateName": "BruteForce-Response-Playbook",
+        "hidden-SentinelTemplateVersion": "1.0"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', variables('SentinelConnectionName'))]",
+        "[resourceId('Microsoft.Web/connections', variables('Office365ConnectionName'))]",
+        "[resourceId('Microsoft.Web/connections', variables('AzureRMConnectionName'))]"
+      ],
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": {
+              "defaultValue": {},
+              "type": "Object"
+            }
+          },
+          "triggers": {
+            "Microsoft_Sentinel_incident": {
+              "type": "ApiConnectionWebhook",
+              "inputs": {
+                "body": {
+                  "callback_url": "@{listCallbackUrl()}"
+                },
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                  }
+                },
+                "path": "/incident-creation"
+              }
+            }
+          },
+          "actions": {
+            "Parse_Incident_Entities": {
+              "type": "ParseJson",
+              "inputs": {
+                "content": "@triggerBody()?['object']?['properties']?['relatedEntities']",
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "type": "string" },
+                      "properties": {
+                        "type": "object",
+                        "properties": {
+                          "address": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "runAfter": {}
+            },
+            "Send_Email_Alert": {
+              "type": "ApiConnection",
+              "inputs": {
+                "body": {
+                  "Body": "<h2>🚨 Brute Force Incident Detected</h2><table><tr><td><b>Incident Title:</b></td><td>@{triggerBody()?['object']?['properties']?['title']}</td></tr><tr><td><b>Severity:</b></td><td>@{triggerBody()?['object']?['properties']?['severity']}</td></tr><tr><td><b>Status:</b></td><td>@{triggerBody()?['object']?['properties']?['status']}</td></tr><tr><td><b>Incident URL:</b></td><td><a href='@{triggerBody()?['object']?['properties']?['incidentUrl']}'>View in Sentinel</a></td></tr><tr><td><b>Time Generated:</b></td><td>@{triggerBody()?['object']?['properties']?['createdTimeUtc']}</td></tr><tr><td><b>Description:</b></td><td>@{triggerBody()?['object']?['properties']?['description']}</td></tr></table><br><p>Review the incident in Microsoft Sentinel and verify whether IP blocking was applied correctly.</p>",
+                  "Importance": "High",
+                  "Subject": "🚨 Sentinel Alert: Brute Force Detected – @{triggerBody()?['object']?['properties']?['title']}",
+                  "To": "[parameters('NotificationEmail')]"
+                },
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['office365']['connectionId']"
+                  }
+                },
+                "method": "post",
+                "path": "/v2/Mail"
+              },
+              "runAfter": {
+                "Parse_Incident_Entities": ["Succeeded"]
+              }
+            },
+            "For_Each_IP_Entity": {
+              "type": "Foreach",
+              "foreach": "@body('Parse_Incident_Entities')",
+              "actions": {
+                "Condition_Is_IP_Entity": {
+                  "type": "If",
+                  "expression": {
+                    "and": [
+                      {
+                        "equals": ["@item()?['kind']", "Ip"]
+                      }
+                    ]
+                  },
+                  "actions": {
+                    "Block_IP_in_NSG": {
+                      "type": "ApiConnection",
+                      "inputs": {
+                        "body": {
+                          "properties": {
+                            "access": "Deny",
+                            "direction": "Inbound",
+                            "priority": 100,
+                            "protocol": "TCP",
+                            "sourceAddressPrefix": "@{item()?['properties']?['address']}",
+                            "sourcePortRange": "*",
+                            "destinationAddressPrefix": "*",
+                            "destinationPortRange": "3389",
+                            "description": "Auto-blocked by Sentinel playbook – brute force from @{item()?['properties']?['address']}"
+                          }
+                        },
+                        "host": {
+                          "connection": {
+                            "name": "@parameters('$connections')['arm']['connectionId']"
+                          }
+                        },
+                        "method": "put",
+                        "path": "[concat('/subscriptions/', parameters('SubscriptionId'), '/resourceGroups/', parameters('ResourceGroupName'), '/providers/Microsoft.Network/networkSecurityGroups/', parameters('NSGName'), '/securityRules/Block-BruteForce-@{item()?[''properties'']?[''address'']}')]",
+                        "queries": {
+                          "x-ms-api-version": "2022-07-01"
+                        }
+                      }
+                    },
+                    "Add_Sentinel_Comment": {
+                      "type": "ApiConnection",
+                      "inputs": {
+                        "body": {
+                          "message": "✅ Automated Response: IP **@{item()?['properties']?['address']}** has been blocked via NSG deny rule on port 3389. Rule name: Block-BruteForce-@{item()?['properties']?['address']}"
+                        },
+                        "host": {
+                          "connection": {
+                            "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                          }
+                        },
+                        "method": "post",
+                        "path": "[concat('/Incidents/Comment')]"
+                      },
+                      "runAfter": {
+                        "Block_IP_in_NSG": ["Succeeded"]
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {}
+                  },
+                  "runAfter": {}
+                }
+              },
+              "runAfter": {
+                "Send_Email_Alert": ["Succeeded"]
+              }
+            }
+          }
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "azuresentinel": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('SentinelConnectionName'))]",
+                "connectionName": "[variables('SentinelConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]"
+              },
+              "office365": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('Office365ConnectionName'))]",
+                "connectionName": "[variables('Office365ConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/office365')]"
+              },
+              "arm": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('AzureRMConnectionName'))]",
+                "connectionName": "[variables('AzureRMConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/arm')]"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "PlaybookResourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Logic/workflows', parameters('PlaybookName'))]"
+    }
+  }
+}
